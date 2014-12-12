@@ -84,6 +84,25 @@ func NewMaze(width, height int) *Maze {
 	return maze
 }
 
+func (maze *Maze) String() string {
+	result := ""
+	for y := maze.height - 1; y >= 0; y-- {
+		for x := 0; x < maze.width; x++ {
+			if x == maze.presentX && y == maze.presentY {
+				result += "PP"
+			} else if maze.walls[x][y] {
+				result += "██"
+			} else {
+				result += "  "
+			}
+		}
+
+		result += "\n"
+	}
+
+	return result
+}
+
 type point struct {
 	x, y int
 	d    Dir
