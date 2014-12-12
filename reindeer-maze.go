@@ -29,8 +29,23 @@ type Player struct {
 type Maze struct {
 	width, height      int
 	walls              [][]bool
-	players            map[*Player]bool
 	presentX, presentY int
+	players            map[*Player]bool
+	processQueue       chan<- interface{}
+}
+
+type addPlayerMsg struct {
+	player *Player
+}
+
+type removePlayerMsg struct {
+	player *Player
+}
+
+type movePlayerMsg struct {
+	player     *Player
+	newX, newY int
+	done       chan<- struct{}
 }
 
 type Compass struct {
@@ -71,6 +86,28 @@ func (compass Compass) String() string {
 		compass.north, compass.east, compass.south, compass.west, p)
 }
 
+func startProcessor(maze *Maze) chan<- interface{} {
+	queue := make(chan interface{})
+	go func() {
+		for msg := range queue {
+			switch msg := msg.(type) {
+			case addPlayerMsg:
+				maze.players[msg.player] = true
+
+			case removePlayerMsg:
+				delete(maze.players, msg.player)
+
+			case movePlayerMsg:
+				msg.player.x = msg.newX
+				msg.player.y = msg.newY
+				msg.done <- struct{}{}
+			}
+		}
+	}()
+
+	return queue
+}
+
 func NewMaze(width, height int) *Maze {
 	maze := new(Maze)
 	maze.width = width
@@ -80,6 +117,8 @@ func NewMaze(width, height int) *Maze {
 	maze.presentY = height / 2
 
 	maze.walls = generateMaze(width, height, maze.presentX, maze.presentY)
+
+	maze.processQueue = startProcessor(maze)
 
 	return maze
 }
@@ -181,7 +220,8 @@ func (maze *Maze) AddPlayer(name string) *Player {
 				x:    x,
 				y:    y,
 			}
-			maze.players[player] = true
+
+			maze.processQueue <- addPlayerMsg{player}
 
 			return player
 		}
@@ -189,7 +229,7 @@ func (maze *Maze) AddPlayer(name string) *Player {
 }
 
 func (player *Player) Remove() {
-	delete(player.maze.players, player)
+	player.maze.processQueue <- removePlayerMsg{player}
 }
 
 func move(x, y int, d Dir) (int, int) {
@@ -274,8 +314,9 @@ func (player *Player) Move(d Dir) bool {
 	x, y := move(player.x, player.y, d)
 
 	if player.maze.validLocation(x, y) {
-		player.x = x
-		player.y = y
+		done := make(chan struct{})
+		player.maze.processQueue <- movePlayerMsg{player, x, y, done}
+		<-done
 
 		return true
 
