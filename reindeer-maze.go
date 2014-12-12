@@ -311,7 +311,7 @@ func client(conn net.Conn, maze *Maze) {
 		player := maze.AddPlayer(name)
 		defer player.Remove()
 
-		log.Printf("Team %s joined", name)
+		log.Printf("%s joined", name)
 
 		io.WriteString(conn, player.Compass().String()+"\n")
 		for scanner.Scan() {
@@ -322,14 +322,17 @@ func client(conn net.Conn, maze *Maze) {
 				continue
 			}
 
-			if player.Move(d) {
-				log.Printf("%s moved %v", name, d)
+			player.Move(d)
+
+			compass := player.Compass()
+			if compass.onPresent {
+				log.Printf("%s found the present", name)
 			}
 
-			io.WriteString(conn, player.Compass().String()+"\n")
+			io.WriteString(conn, compass.String()+"\n")
 		}
 
-		log.Printf("Team %s disconnected", name)
+		log.Printf("%s disconnected", name)
 	}
 
 	if err := scanner.Err(); err != nil {
