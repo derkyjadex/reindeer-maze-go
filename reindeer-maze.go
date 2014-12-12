@@ -340,6 +340,8 @@ func parseMsg(msg string) (Dir, error) {
 	return 0, errors.New("invalid message")
 }
 
+const moveDelay = 100 * time.Millisecond
+
 func client(conn net.Conn, maze *Maze) {
 	defer conn.Close()
 
@@ -354,8 +356,13 @@ func client(conn net.Conn, maze *Maze) {
 
 		log.Printf("%s joined", name)
 
+		moveStart := time.Now()
+
 		io.WriteString(conn, player.Compass().String()+"\n")
 		for scanner.Scan() {
+			time.Sleep(moveDelay - time.Since(moveStart))
+			moveStart = time.Now()
+
 			msg := scanner.Text()
 			d, err := parseMsg(msg)
 			if err != nil {
