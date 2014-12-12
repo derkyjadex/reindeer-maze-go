@@ -52,9 +52,9 @@ func (d Dir) String() string {
 		return "S"
 	case W:
 		return "W"
-	default:
-		return ""
 	}
+
+	panic("Invalid direction")
 }
 
 func (compass Compass) String() string {
