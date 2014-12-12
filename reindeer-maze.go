@@ -217,20 +217,28 @@ func (player *Player) Compass() Compass {
 	} else if x == maze.presentX {
 		if y < maze.presentY {
 			present = N
+			if maze.measureFree(x, y, N) >= maze.presentY-y {
+				presentPtr = &present
+			}
 		} else {
 			present = S
+			if maze.measureFree(x, y, S) >= y-maze.presentY {
+				presentPtr = &present
+			}
 		}
-
-		presentPtr = &present
 
 	} else if y == maze.presentY {
 		if x < maze.presentX {
 			present = E
+			if maze.measureFree(x, y, E) >= maze.presentX-x {
+				presentPtr = &present
+			}
 		} else {
 			present = W
+			if maze.measureFree(x, y, W) >= x-maze.presentX {
+				presentPtr = &present
+			}
 		}
-
-		presentPtr = &present
 	}
 
 	return Compass{
