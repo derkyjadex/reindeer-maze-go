@@ -75,17 +75,77 @@ func NewMaze(width, height int) *Maze {
 	maze := new(Maze)
 	maze.width = width
 	maze.height = height
-
-	maze.walls = make([][]bool, width)
-	for i := 0; i < width; i++ {
-		maze.walls[i] = make([]bool, height)
-	}
-
 	maze.players = make(map[*Player]bool)
 	maze.presentX = width / 2
 	maze.presentY = height / 2
 
+	maze.walls = generateMaze(width, height, maze.presentX, maze.presentY)
+
 	return maze
+}
+
+type point struct {
+	x, y int
+	d    Dir
+}
+
+func generateMaze(width, height, startX, startY int) [][]bool {
+	walls := make([][]bool, width)
+	for x := 0; x < width; x++ {
+		walls[x] = make([]bool, height)
+		for y := 0; y < height; y++ {
+			walls[x][y] = true
+		}
+	}
+
+	walls[startX][startY] = false
+
+	wallList := []point{}
+
+	if startX > 0 {
+		wallList = append(wallList, point{startX - 1, startY, W})
+	}
+	if startX < width-1 {
+		wallList = append(wallList, point{startX + 1, startY, E})
+	}
+	if startY > 0 {
+		wallList = append(wallList, point{startX, startY - 1, S})
+	}
+	if startY < height-1 {
+		wallList = append(wallList, point{startX, startY + 1, N})
+	}
+
+	rand.Seed(time.Now().UnixNano())
+
+	for len(wallList) > 0 {
+		i := rand.Intn(len(wallList))
+		wall := wallList[i]
+		wallList = append(wallList[:i], wallList[i+1:]...)
+
+		x, y := move(wall.x, wall.y, wall.d)
+		if x < 0 || x > width-1 || y < 0 || y > height-1 {
+			walls[wall.x][wall.y] = false
+
+		} else if walls[wall.x][wall.y] && walls[x][y] {
+			walls[wall.x][wall.y] = false
+			walls[x][y] = false
+
+			if x > 0 && walls[x-1][y] {
+				wallList = append(wallList, point{x - 1, y, W})
+			}
+			if x < width-1 && walls[x+1][y] {
+				wallList = append(wallList, point{x + 1, y, E})
+			}
+			if y > 0 && walls[x][y-1] {
+				wallList = append(wallList, point{x, y - 1, S})
+			}
+			if y < width-1 && walls[x][y+1] {
+				wallList = append(wallList, point{x, y + 1, N})
+			}
+		}
+	}
+
+	return walls
 }
 
 func (maze *Maze) AddPlayer(name string) *Player {
