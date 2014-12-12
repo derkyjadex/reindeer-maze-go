@@ -67,8 +67,8 @@ func (compass Compass) String() string {
 		p = compass.present.String()
 	}
 
-	return fmt.Sprintf("N%d S%d E%d W%d P%s",
-		compass.north, compass.south, compass.east, compass.west, p)
+	return fmt.Sprintf("N%d E%d S%d W%d P%s",
+		compass.north, compass.east, compass.south, compass.west, p)
 }
 
 func NewMaze(width, height int) *Maze {
