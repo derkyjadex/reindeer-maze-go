@@ -49,6 +49,10 @@ type movePlayerMsg struct {
 	done       chan<- struct{}
 }
 
+type getPlayersMsg struct {
+	responseChan chan<- []Player
+}
+
 type Compass struct {
 	north     int
 	east      int
@@ -102,6 +106,14 @@ func startProcessor(maze *Maze) chan<- interface{} {
 				msg.player.x = msg.newX
 				msg.player.y = msg.newY
 				msg.done <- struct{}{}
+
+			case getPlayersMsg:
+				players := make([]Player, 0, len(maze.players))
+				for player, _ := range maze.players {
+					players = append(players, *player)
+				}
+
+				msg.responseChan <- players
 			}
 		}
 	}()
@@ -205,6 +217,13 @@ func generateMaze(width, height, startX, startY int) [][]bool {
 	}
 
 	return walls
+}
+
+func (maze *Maze) Players() []Player {
+	results := make(chan []Player)
+	maze.processQueue <- getPlayersMsg{results}
+
+	return <-results
 }
 
 func (maze *Maze) AddPlayer(name string) *Player {
@@ -395,6 +414,13 @@ func console(maze *Maze) {
 		switch scanner.Text() {
 		case "maze":
 			fmt.Println(maze)
+
+		case "players":
+			players := maze.Players()
+			fmt.Printf("Players:\n")
+			for _, player := range players {
+				fmt.Printf("  %s @ %d, %d\n", player.name, player.x, player.y)
+			}
 		}
 	}
 }
