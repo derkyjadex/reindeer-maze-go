@@ -8,6 +8,7 @@ import (
 	"log"
 	"math/rand"
 	"net"
+	"os"
 	"time"
 )
 
@@ -388,6 +389,15 @@ func client(conn net.Conn, maze *Maze) {
 	}
 }
 
+func console(maze *Maze) {
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		switch scanner.Text() {
+		case "maze":
+			fmt.Println(maze)
+		}
+	}
+}
 func main() {
 	log.Printf("Starting up...")
 
@@ -400,6 +410,8 @@ func main() {
 	maze := NewMaze(100, 100)
 
 	log.Printf("Listening on localhost:3000")
+
+	go console(maze)
 
 	for {
 		conn, err := l.Accept()
