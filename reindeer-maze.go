@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"net"
+	"net/http"
 	"os"
 	"time"
 )
@@ -502,6 +504,62 @@ func console(maze *Maze) {
 		}
 	}
 }
+
+func makeFileHandler(path, contentType string) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", contentType)
+		content, err := ioutil.ReadFile(path)
+		if err != nil {
+			log.Printf("Error serving '%s': %v", path, err)
+			http.Error(w, ":(", 500)
+		}
+
+		w.Write(content)
+	}
+}
+
+func makeMazeHandler(maze *Maze) func(w http.ResponseWriter, r *http.Request) {
+	json := fmt.Sprintf("{\"width\":%d,\"height\":%d,\"presentX\":%d,\"presentY\":%d,\"walls\":[",
+		maze.width, maze.height, maze.presentX, maze.presentY)
+
+	for x := 0; x < maze.width; x++ {
+		for y := 0; y < maze.height; y++ {
+			if maze.walls[x][y] {
+				json += fmt.Sprintf("[%d,%d],", x, y)
+			}
+		}
+	}
+
+	json = json[:len(json)-1] + "]}"
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, json)
+	}
+}
+
+func makePlayersHandler(maze *Maze) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		json := "[ "
+		for _, player := range maze.Players() {
+			json += fmt.Sprintf("{\"name\": \"%s\", \"x\": %d, \"y\": %d},", player.name, player.x, player.y)
+		}
+
+		json = json[:len(json)-1] + "]"
+
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, json)
+	}
+}
+
+func webServer(maze *Maze) {
+	http.HandleFunc("/", makeFileHandler("index.html", "text/html"))
+	http.HandleFunc("/reindeer.js", makeFileHandler("reindeer.js", "application/javascript"))
+	http.HandleFunc("/maze", makeMazeHandler(maze))
+	http.HandleFunc("/players", makePlayersHandler(maze))
+	http.ListenAndServe("localhost:3001", nil)
+}
+
 func main() {
 	log.Printf("Starting up...")
 
@@ -511,11 +569,12 @@ func main() {
 	}
 	defer l.Close()
 
-	maze := NewMaze(100, 100)
+	maze := NewMaze(50, 50)
 
 	log.Printf("Listening on localhost:3000")
 
 	go console(maze)
+	go webServer(maze)
 
 	for {
 		conn, err := l.Accept()
