@@ -408,19 +408,97 @@ func client(conn net.Conn, maze *Maze) {
 	}
 }
 
+func show(output io.Writer, walls [][]bool, presentX, presentY int, players []Player) {
+	width, height := len(walls), len(walls[0])
+
+	players_ := make(map[string]bool)
+	for _, player := range players {
+		xy := fmt.Sprintf("%d,%d", player.x, player.y)
+		players_[xy] = true
+	}
+
+	fmt.Fprint(output, "\033(0")
+
+	for y := height - 1; y >= 0; y -= 1 {
+		for x := 0; x < width; x += 1 {
+			if players_[fmt.Sprintf("%d,%d", x, y)] {
+				fmt.Fprint(output, "aa")
+
+			} else if walls[x][y] {
+				sides := ""
+				if y == height-1 || walls[x][y+1] {
+					sides += "n"
+				}
+				if x == width-1 || walls[x+1][y] {
+					sides += "e"
+				}
+				if y == 0 || walls[x][y-1] {
+					sides += "s"
+				}
+				if x == 0 || walls[x-1][y] {
+					sides += "w"
+				}
+
+				switch sides {
+				case "":
+					fmt.Fprint(output, "~")
+				case "nesw":
+					fmt.Fprint(output, "nn")
+				case "n":
+					fmt.Fprint(output, "mj")
+				case "s":
+					fmt.Fprint(output, "lk")
+				case "ns":
+					fmt.Fprint(output, "xx")
+				case "w", "e", "ew":
+					fmt.Fprint(output, "qq")
+				case "ne":
+					fmt.Fprint(output, "mv")
+				case "es":
+					fmt.Fprint(output, "lw")
+				case "sw":
+					fmt.Fprint(output, "wk")
+				case "nw":
+					fmt.Fprint(output, "vj")
+				case "nes":
+					fmt.Fprint(output, "tn")
+				case "esw":
+					fmt.Fprint(output, "ww")
+				case "nsw":
+					fmt.Fprint(output, "nu")
+				case "new":
+					fmt.Fprint(output, "vv")
+				}
+			} else if x == presentX && y == presentY {
+				fmt.Fprint(output, "``")
+			} else {
+				fmt.Fprint(output, "  ")
+			}
+		}
+
+		fmt.Fprint(output, "\n")
+	}
+
+	fmt.Fprint(output, "\033(B")
+}
+
 func console(maze *Maze) {
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		switch scanner.Text() {
 		case "maze":
-			fmt.Println(maze)
+			fmt.Fprint(os.Stderr, maze)
 
 		case "players":
 			players := maze.Players()
-			fmt.Printf("Players:\n")
+			fmt.Fprint(os.Stderr, "Players:\n")
 			for _, player := range players {
-				fmt.Printf("  %s @ %d, %d\n", player.name, player.x, player.y)
+				fmt.Fprintf(os.Stderr, "  %s @ %d, %d\n", player.name, player.x, player.y)
 			}
+
+		case "show":
+			players := maze.Players()
+			show(os.Stderr, maze.walls, maze.presentX, maze.presentY, players)
 		}
 	}
 }
