@@ -4,359 +4,26 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"github.com/derkyjadex/reindeer-maze-go/maze"
 	"io"
 	"io/ioutil"
 	"log"
-	"math/rand"
 	"net"
 	"net/http"
 	"os"
 	"time"
 )
 
-type Dir int
-
-const (
-	N Dir = iota
-	E
-	S
-	W
-)
-
-type Player struct {
-	maze *Maze
-	name string
-	x, y int
-}
-
-type Maze struct {
-	width, height      int
-	walls              [][]bool
-	presentX, presentY int
-	players            map[*Player]bool
-	processQueue       chan<- interface{}
-}
-
-type addPlayerMsg struct {
-	player *Player
-}
-
-type removePlayerMsg struct {
-	player *Player
-}
-
-type movePlayerMsg struct {
-	player     *Player
-	newX, newY int
-	done       chan<- struct{}
-}
-
-type getPlayersMsg struct {
-	responseChan chan<- []Player
-}
-
-type Compass struct {
-	north     int
-	east      int
-	south     int
-	west      int
-	present   *Dir
-	onPresent bool
-}
-
-func (d Dir) String() string {
-	switch d {
-	case N:
-		return "N"
-	case E:
-		return "E"
-	case S:
-		return "S"
-	case W:
-		return "W"
-	}
-
-	panic("Invalid direction")
-}
-
-func (compass Compass) String() string {
-	var p string
-	if compass.onPresent {
-		p = "X"
-	} else if compass.present == nil {
-		p = "?"
-	} else {
-		p = compass.present.String()
-	}
-
-	return fmt.Sprintf("N%d E%d S%d W%d P%s",
-		compass.north, compass.east, compass.south, compass.west, p)
-}
-
-func startProcessor(maze *Maze) chan<- interface{} {
-	queue := make(chan interface{})
-	go func() {
-		for msg := range queue {
-			switch msg := msg.(type) {
-			case addPlayerMsg:
-				maze.players[msg.player] = true
-
-			case removePlayerMsg:
-				delete(maze.players, msg.player)
-
-			case movePlayerMsg:
-				msg.player.x = msg.newX
-				msg.player.y = msg.newY
-				msg.done <- struct{}{}
-
-			case getPlayersMsg:
-				players := make([]Player, 0, len(maze.players))
-				for player, _ := range maze.players {
-					players = append(players, *player)
-				}
-
-				msg.responseChan <- players
-			}
-		}
-	}()
-
-	return queue
-}
-
-func NewMaze(width, height int) *Maze {
-	maze := new(Maze)
-	maze.width = width
-	maze.height = height
-	maze.players = make(map[*Player]bool)
-	maze.presentX = width / 2
-	maze.presentY = height / 2
-
-	maze.walls = generateMaze(width, height, maze.presentX, maze.presentY)
-
-	maze.processQueue = startProcessor(maze)
-
-	return maze
-}
-
-func (maze *Maze) String() string {
-	result := ""
-	for y := maze.height - 1; y >= 0; y-- {
-		for x := 0; x < maze.width; x++ {
-			if x == maze.presentX && y == maze.presentY {
-				result += "PP"
-			} else if maze.walls[x][y] {
-				result += "██"
-			} else {
-				result += "  "
-			}
-		}
-
-		result += "\n"
-	}
-
-	return result
-}
-
-type point struct {
-	x, y int
-	d    Dir
-}
-
-func generateMaze(width, height, startX, startY int) [][]bool {
-	walls := make([][]bool, width)
-	for x := 0; x < width; x++ {
-		walls[x] = make([]bool, height)
-		for y := 0; y < height; y++ {
-			walls[x][y] = true
-		}
-	}
-
-	walls[startX][startY] = false
-
-	wallList := []point{}
-
-	if startX > 0 {
-		wallList = append(wallList, point{startX - 1, startY, W})
-	}
-	if startX < width-1 {
-		wallList = append(wallList, point{startX + 1, startY, E})
-	}
-	if startY > 0 {
-		wallList = append(wallList, point{startX, startY - 1, S})
-	}
-	if startY < height-1 {
-		wallList = append(wallList, point{startX, startY + 1, N})
-	}
-
-	rand.Seed(time.Now().UnixNano())
-
-	for len(wallList) > 0 {
-		i := rand.Intn(len(wallList))
-		wall := wallList[i]
-		wallList = append(wallList[:i], wallList[i+1:]...)
-
-		x, y := move(wall.x, wall.y, wall.d)
-		if x < 0 || x > width-1 || y < 0 || y > height-1 {
-			walls[wall.x][wall.y] = false
-
-		} else if walls[wall.x][wall.y] && walls[x][y] {
-			walls[wall.x][wall.y] = false
-			walls[x][y] = false
-
-			if x > 0 && walls[x-1][y] {
-				wallList = append(wallList, point{x - 1, y, W})
-			}
-			if x < width-1 && walls[x+1][y] {
-				wallList = append(wallList, point{x + 1, y, E})
-			}
-			if y > 0 && walls[x][y-1] {
-				wallList = append(wallList, point{x, y - 1, S})
-			}
-			if y < width-1 && walls[x][y+1] {
-				wallList = append(wallList, point{x, y + 1, N})
-			}
-		}
-	}
-
-	return walls
-}
-
-func (maze *Maze) Players() []Player {
-	results := make(chan []Player)
-	maze.processQueue <- getPlayersMsg{results}
-
-	return <-results
-}
-
-func (maze *Maze) AddPlayer(name string) *Player {
-	rand.Seed(time.Now().UnixNano())
-
-	for {
-		x := rand.Intn(maze.width)
-		y := rand.Intn(maze.height)
-
-		if !maze.walls[x][y] {
-			player := &Player{
-				maze: maze,
-				name: name,
-				x:    x,
-				y:    y,
-			}
-
-			maze.processQueue <- addPlayerMsg{player}
-
-			return player
-		}
-	}
-}
-
-func (player *Player) Remove() {
-	player.maze.processQueue <- removePlayerMsg{player}
-}
-
-func move(x, y int, d Dir) (int, int) {
-	switch d {
-	case N:
-		y++
-	case E:
-		x++
-	case S:
-		y--
-	case W:
-		x--
-	}
-
-	return x, y
-}
-
-func (maze *Maze) validLocation(x, y int) bool {
-	return x >= 0 && x < maze.width &&
-		y >= 0 && y < maze.height &&
-		!maze.walls[x][y]
-}
-
-func (maze *Maze) measureFree(x, y int, d Dir) int {
-	for c := 0; ; c++ {
-		x, y = move(x, y, d)
-		if !maze.validLocation(x, y) {
-			return c
-		}
-	}
-}
-
-func (player *Player) Compass() Compass {
-	maze := player.maze
-	x, y := player.x, player.y
-
-	var present Dir
-	var presentPtr *Dir
-	var onPresent bool
-
-	if x == maze.presentX && y == maze.presentY {
-		onPresent = true
-
-	} else if x == maze.presentX {
-		if y < maze.presentY {
-			present = N
-			if maze.measureFree(x, y, N) >= maze.presentY-y {
-				presentPtr = &present
-			}
-		} else {
-			present = S
-			if maze.measureFree(x, y, S) >= y-maze.presentY {
-				presentPtr = &present
-			}
-		}
-
-	} else if y == maze.presentY {
-		if x < maze.presentX {
-			present = E
-			if maze.measureFree(x, y, E) >= maze.presentX-x {
-				presentPtr = &present
-			}
-		} else {
-			present = W
-			if maze.measureFree(x, y, W) >= x-maze.presentX {
-				presentPtr = &present
-			}
-		}
-	}
-
-	return Compass{
-		north:     maze.measureFree(x, y, N),
-		east:      maze.measureFree(x, y, E),
-		south:     maze.measureFree(x, y, S),
-		west:      maze.measureFree(x, y, W),
-		present:   presentPtr,
-		onPresent: onPresent,
-	}
-}
-
-func (player *Player) Move(d Dir) bool {
-	x, y := move(player.x, player.y, d)
-
-	if player.maze.validLocation(x, y) {
-		done := make(chan struct{})
-		player.maze.processQueue <- movePlayerMsg{player, x, y, done}
-		<-done
-
-		return true
-
-	} else {
-		return false
-	}
-}
-
-func parseMsg(msg string) (Dir, error) {
+func parseMsg(msg string) (maze.Dir, error) {
 	switch msg {
 	case "N", "n":
-		return N, nil
+		return maze.N, nil
 	case "E", "e":
-		return E, nil
+		return maze.E, nil
 	case "S", "s":
-		return S, nil
+		return maze.S, nil
 	case "W", "w":
-		return W, nil
+		return maze.W, nil
 	}
 
 	return 0, errors.New("invalid message")
@@ -364,7 +31,7 @@ func parseMsg(msg string) (Dir, error) {
 
 const moveDelay = 100 * time.Millisecond
 
-func client(conn net.Conn, maze *Maze) {
+func client(conn net.Conn, maze *maze.Maze) {
 	defer conn.Close()
 
 	scanner := bufio.NewScanner(conn)
@@ -395,7 +62,7 @@ func client(conn net.Conn, maze *Maze) {
 			player.Move(d)
 
 			compass := player.Compass()
-			if compass.onPresent {
+			if compass.OnPresent {
 				log.Printf("%s found the present", name)
 			}
 
@@ -410,12 +77,12 @@ func client(conn net.Conn, maze *Maze) {
 	}
 }
 
-func show(output io.Writer, walls [][]bool, presentX, presentY int, players []Player) {
+func show(output io.Writer, walls [][]bool, presentX, presentY int, players []maze.Player) {
 	width, height := len(walls), len(walls[0])
 
 	players_ := make(map[string]bool)
 	for _, player := range players {
-		xy := fmt.Sprintf("%d,%d", player.x, player.y)
+		xy := fmt.Sprintf("%d,%d", player.X, player.Y)
 		players_[xy] = true
 	}
 
@@ -484,7 +151,7 @@ func show(output io.Writer, walls [][]bool, presentX, presentY int, players []Pl
 	fmt.Fprint(output, "\033(B")
 }
 
-func console(maze *Maze) {
+func console(maze *maze.Maze) {
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		switch scanner.Text() {
@@ -495,12 +162,12 @@ func console(maze *Maze) {
 			players := maze.Players()
 			fmt.Fprint(os.Stderr, "Players:\n")
 			for _, player := range players {
-				fmt.Fprintf(os.Stderr, "  %s @ %d, %d\n", player.name, player.x, player.y)
+				fmt.Fprintf(os.Stderr, "  %s @ %d, %d\n", player.Name, player.X, player.Y)
 			}
 
 		case "show":
 			players := maze.Players()
-			show(os.Stderr, maze.walls, maze.presentX, maze.presentY, players)
+			show(os.Stderr, maze.Walls, maze.PresentX, maze.PresentY, players)
 		}
 	}
 }
@@ -518,13 +185,13 @@ func makeFileHandler(path, contentType string) func(http.ResponseWriter, *http.R
 	}
 }
 
-func makeMazeHandler(maze *Maze) func(w http.ResponseWriter, r *http.Request) {
+func makeMazeHandler(maze *maze.Maze) func(w http.ResponseWriter, r *http.Request) {
 	json := fmt.Sprintf("{\"width\":%d,\"height\":%d,\"presentX\":%d,\"presentY\":%d,\"walls\":[",
-		maze.width, maze.height, maze.presentX, maze.presentY)
+		maze.Width, maze.Height, maze.PresentX, maze.PresentY)
 
-	for x := 0; x < maze.width; x++ {
-		for y := 0; y < maze.height; y++ {
-			if maze.walls[x][y] {
+	for x := 0; x < maze.Width; x++ {
+		for y := 0; y < maze.Height; y++ {
+			if maze.Walls[x][y] {
 				json += fmt.Sprintf("[%d,%d],", x, y)
 			}
 		}
@@ -538,11 +205,11 @@ func makeMazeHandler(maze *Maze) func(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func makePlayersHandler(maze *Maze) func(w http.ResponseWriter, r *http.Request) {
+func makePlayersHandler(maze *maze.Maze) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		json := "[ "
 		for _, player := range maze.Players() {
-			json += fmt.Sprintf("{\"name\": \"%s\", \"x\": %d, \"y\": %d},", player.name, player.x, player.y)
+			json += fmt.Sprintf("{\"name\": \"%s\", \"x\": %d, \"y\": %d},", player.Name, player.X, player.Y)
 		}
 
 		json = json[:len(json)-1] + "]"
@@ -552,7 +219,7 @@ func makePlayersHandler(maze *Maze) func(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-func webServer(maze *Maze) {
+func webServer(maze *maze.Maze) {
 	http.HandleFunc("/", makeFileHandler("index.html", "text/html"))
 	http.HandleFunc("/reindeer.js", makeFileHandler("reindeer.js", "application/javascript"))
 	http.HandleFunc("/maze", makeMazeHandler(maze))
@@ -569,7 +236,7 @@ func main() {
 	}
 	defer l.Close()
 
-	maze := NewMaze(50, 50)
+	maze := maze.NewMaze(50, 50)
 
 	log.Printf("Listening on localhost:3000")
 
